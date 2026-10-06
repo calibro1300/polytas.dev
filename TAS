@@ -1,0 +1,101 @@
+// ==UserScript==
+// @name         PolyTrack Autonomous Local TAS Engine
+// @namespace    http://tampermonkey.net
+// @version      1.0
+// @description  Local sequence playback, engine scale slow-mode, and automated input tapping for PolyTrack (Isolated from Leaderboards).
+// @author       AI TAS Engine
+// @match        *://*://*
+// @match        *://itch.io/*
+// @match        *://localhost/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use main';
+
+    console.log("%c[TAS Engine] Initializing Local Sandbox System...", "color: #00ffcc; font-weight: bold;");
+
+    // =========================================================================
+    // 1. CONFIGURATION & MACRO INPUTS
+    // =========================================================================
+    const ENGINE_SPEED_SCALE = 0.25; // 0.25 = 240Hz physics calculation / 4x slowdown (Slow-Mode)
+    const AUTO_TAP_INTERVAL_MS = 30; // Speed of auto-tap frequency for precise drift/throttle corrections
+
+    // Sequence format: [Time in Milliseconds, "Keys to press"]
+    // Leave blank ("") to release all keys at that timestamp
+    const RAW_MILLISECOND_SEQUENCE = [
+        [0, "w"],         // 0ms: Hold Throttle
+        [1250, "wa"],     // 1250ms: Throttle + Sharp Left Turn
+        [1820, "w"],      // 1820ms: Release Turn, Straight Throttle
+        [2500, "w-tap"],  // 2500ms: Enter Rapid Auto-Tap mode for key 'w'
+        [3400, "wd"],     // 3400ms: Stop Auto-Tap, Throttle + Right Turn
+        [4900, ""]        // 4900ms: Release All Inputs (Finish Line)
+    ];
+
+    // =========================================================================
+    // 2. INPUT SIMULATION ENGINE & OVERRIDES
+    // =========================================================================
+    let activeKeys = new Set();
+    let autoTapActive = false;
+    let autoTapKey = null;
+    let autoTapTimer = null;
+
+    // Dispatch synthetic native keyboard events to the game canvas/window
+    function sendKey(type, keyName) {
+        const lowerKey = keyName.toLowerCase();
+        let keyCodeMap = { 'w': 87, 'a': 65, 's': 83, 'd': 68, 'r': 82 };
+        let codeMap = { 'w': 'KeyW', 'a': 'KeyA', 's': 'KeyS', 'd': 'KeyD', 'r': 'KeyR' };
+
+        let event = new KeyboardEvent(type, {
+            key: lowerKey,
+            code: codeMap[lowerKey] || '',
+            keyCode: keyCodeMap[lowerKey] || 0,
+            which: keyCodeMap[lowerKey] || 0,
+            bubbles: true,
+            cancelable: true
+        });
+        window.dispatchEvent(event);
+        document.dispatchEvent(event);
+    }
+
+    function releaseAll() {
+        stopAutoTap();
+        activeKeys.forEach(key => sendKey('keyup', key));
+        activeKeys.clear();
+    }
+
+    function processTargetInputs(inputString) {
+        // Handle Auto-Tap Tag Check
+        if (inputString.includes('-tap')) {
+            let targetKey = inputString.split('-')[0];
+            startAutoTap(targetKey);
+            return;
+        } else {
+            stopAutoTap();
+        }
+
+        let targetKeys = new Set(inputString.toLowerCase().split(''));
+        
+        // Release keys no longer in the current frame matrix
+        activeKeys.forEach(key => {
+            if (!targetKeys.has(key)) {
+                sendKey('keyup', key);
+                activeKeys.delete(key);
+            }
+        });
+
+        // Press new keys in the frame matrix
+        targetKeys.forEach(key => {
+            if (!activeKeys.has(key) && key !== "") {
+                sendKey('keydown', key);
+                activeKeys.add(key);
+            }
+        });
+    }
+
+    // =========================================================================
+    // 3. AUTO-TAPPING SUB-SYSTEM
+    // =========================================================================
+    function startAutoTap(key) {
+        if (autoTapActive && autoTapKey === key) return;
+... (75 lines left)
